@@ -22,7 +22,7 @@
       <button class="btn smallbtn blue" onclick="pauseTimer()">⏸</button>
       <button class="btn smallbtn green" onclick="saveTimer()">💾</button>
       <button class="btn smallbtn gray" onclick="resetTimer()">초기화</button>
-      <strong>속도</strong><select id="speedFactor"><option value="0.85">천천히</option><option value="1" selected>보통</option><option value="1.15">빠르게</option></select>
+      <strong>속도</strong><select id="speedFactor"><option value="0.6">천천히</option><option value="0.72" selected>보통</option><option value="0.85">빠르게</option></select>
       <ul id="history" class="history"></ul>
     </div>
     <div id="errorBox" class="error" style="display:none"></div>
@@ -36,7 +36,9 @@
             <strong>대본</strong>
             <button id="prompterToggle" class="btn green iconbtn" title="재생" onclick="togglePrompter()">⏵</button>
             <button class="btn gray iconbtn" title="처음으로" onclick="resetPrompter()">🔙</button>
-            <button class="btn blue" onclick="startFullRead()">🔊 전체읽기</button>
+            <strong>전체읽기</strong>
+            <button id="readToggle" class="btn blue iconbtn" title="전체읽기" onclick="toggleFullRead()">🔊</button>
+            <button class="btn gray iconbtn" title="전체읽기 처음으로" onclick="resetFullRead()">🔙</button>
           </div>
           <div class="control-row">
             <button class="btn green" onclick="prevLine()">◀ 이전</button>
@@ -52,7 +54,7 @@
             <div id="line3" class="line scroll-line">다음 줄</div>
           </div>
           <div id="lineStatus" class="status">줄 0 / 0</div>
-          <div class="hint">대본 자동 진행과 전체읽기는 글자 수에 맞춰 이동하고, 슬라이드 위치도 함께 맞춰집니다.</div>
+          <div class="hint">대본 재생은 슬라이드 끝에서 멈춥니다. 다음 슬라이드로 넘기면 이어서 연습할 수 있습니다.</div>
         </div>
       </div>
     </section>
@@ -82,29 +84,33 @@
     </section>
   </div>
 <script>
-let scripts=[], qnas=[], flatLines=[], flatIndex=0, timer=null, autoPrompter=null, seconds=0, currentQ={normal:null, pressure:null}, pool={normal:[], pressure:[]}, judgeMode={normal:true, pressure:true}, readingAll=false, readToken=0;
+let scripts=[], qnas=[], flatLines=[], flatIndex=0, timer=null, autoPrompter=null, seconds=0, currentQ={normal:null, pressure:null}, pool={normal:[], pressure:[]}, judgeMode={normal:true, pressure:true}, readingAll=false, readToken=0, waitingSlideAdvance=false;
 function el(id){return document.getElementById(id)}
 function esc(s){return String(s??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[m]))}
 const readyMsg="🗣️ 엄마,\n1번부터 5번까지만 거의 외우고, 나머지는 키워드 '5중 이동안정 구조, 검증 기록, 시범판매, 창녕 로컬 기프트, 표준화'만 기억해.\n말 잘하는 척할 필요 없어. 현장에서 화분 많이 포장해 본 사람의 '기록과 구조'로 사업을 체계화하겠다는 태도만 보여주면 이문숙 합격이야.";
 async function loadData(){try{const [s,q]=await Promise.all([fetch('script.json?ver='+Date.now(),{cache:'no-store'}),fetch('qna.json?ver='+Date.now(),{cache:'no-store'})]); if(!s.ok||!q.ok) throw new Error('json file not found'); scripts=await s.json(); qnas=await q.json(); buildFlatLines(); renderSlide(); resetQna('normal'); resetQna('pressure'); renderRequiredQuestions(); loadHistory();}catch(e){el('errorBox').style.display='block';el('errorBox').innerText='script.json 또는 qna.json을 불러오지 못했습니다. index.html, script.json, qna.json이 같은 위치에 있는지 확인해 주세요.';console.error(e)}}
 function buildFlatLines(){flatLines=[]; scripts.forEach((s,si)=>{(s.script||[]).forEach(line=>{if(String(line).trim())flatLines.push({text:String(line).trim(), slideIndex:si, title:s.title||`[S${si+1}]`, imgSrc:s.imgSrc})})}); flatIndex=0}
 function currentFlat(){return flatLines[flatIndex]||null}
-function renderSlide(){if(!scripts.length||!flatLines.length)return; const cur=currentFlat()||flatLines[0]; if(cur){el('slideImg').src=cur.imgSrc||`슬라이드${String(cur.slideIndex+1).padStart(4,'0')}.jpg`; el('slideTitle').innerText=cur.title; el('slideCount').innerText=`${cur.slideIndex+1} / ${scripts.length}`;} el('line1').innerText=flatLines[flatIndex]?.text||'대본 없음'; el('line2').innerText=flatLines[flatIndex+1]?.text||'다음 줄 없음'; el('line3').innerText=flatLines[flatIndex+2]?.text||'다음 줄 없음'; el('lineStatus').innerText=`줄 ${Math.min(flatIndex+1,flatLines.length)} / ${flatLines.length}`}
-function prevSlide(){const cur=currentFlat(); if(!cur)return; const target=Math.max(cur.slideIndex-1,0); const idx=flatLines.findIndex(x=>x.slideIndex===target); if(idx>=0){flatIndex=idx; renderSlide()}}
-function nextSlide(){const cur=currentFlat(); if(!cur)return; const target=Math.min(cur.slideIndex+1,scripts.length-1); const idx=flatLines.findIndex(x=>x.slideIndex===target); if(idx>=0){flatIndex=idx; renderSlide()}}
-function speed(){return parseFloat(el('speedFactor')?.value||'1')}
-function lineDuration(text){const len=String(text||'').replace(/\s/g,'').length; return Math.max(2300, Math.min(9000, Math.round((1500+len*105)/speed())))}
+function isLastLineOfSlide(i=flatIndex){return !flatLines[i+1] || flatLines[i+1].slideIndex!==flatLines[i].slideIndex}
+function renderSlide(){if(!scripts.length||!flatLines.length)return; const cur=currentFlat()||flatLines[0]; if(cur){el('slideImg').src=cur.imgSrc||`슬라이드${String(cur.slideIndex+1).padStart(4,'0')}.jpg`; el('slideTitle').innerText=cur.title; el('slideCount').innerText=`${cur.slideIndex+1} / ${scripts.length}`;} el('line1').innerText=flatLines[flatIndex]?.text||'대본 없음'; el('line2').innerText=flatLines[flatIndex+1]?.slideIndex===cur?.slideIndex?flatLines[flatIndex+1].text:'다음 슬라이드로 넘기세요'; el('line3').innerText=flatLines[flatIndex+2]?.slideIndex===cur?.slideIndex?flatLines[flatIndex+2].text:'다음 줄 없음'; el('lineStatus').innerText=`줄 ${Math.min(flatIndex+1,flatLines.length)} / ${flatLines.length}`}
+function prevSlide(){pausePrompter(); waitingSlideAdvance=false; const cur=currentFlat(); if(!cur)return; const target=Math.max(cur.slideIndex-1,0); const idx=flatLines.findIndex(x=>x.slideIndex===target); if(idx>=0){flatIndex=idx; renderSlide()}}
+function nextSlide(){const cur=currentFlat(); if(!cur)return; const wasWaiting=waitingSlideAdvance; const target=Math.min(cur.slideIndex+1,scripts.length-1); const idx=flatLines.findIndex(x=>x.slideIndex===target); if(idx>=0&&target!==cur.slideIndex){flatIndex=idx; waitingSlideAdvance=false; renderSlide(); if(wasWaiting){startTimer(); schedulePrompter();}}}
+function speed(){return parseFloat(el('speedFactor')?.value||'0.72')}
+function lineDuration(text){const len=String(text||'').replace(/\s/g,'').length; return Math.max(3300, Math.min(12000, Math.round((2300+len*145)/speed())))}
 function setPromptButton(running){const b=el('prompterToggle'); if(!b)return; b.innerText=running?'⏸':'⏵'; b.title=running?'일시정지':'재생'; b.className=running?'btn blue iconbtn':'btn green iconbtn'}
+function setReadButton(running){const b=el('readToggle'); if(!b)return; b.innerText=running?'⏸':'🔊'; b.title=running?'전체읽기 일시정지':'전체읽기'; b.className=running?'btn blue iconbtn':'btn blue iconbtn'}
 function schedulePrompter(){pausePrompter(false); const current=flatLines[flatIndex]?.text||''; autoPrompter=setTimeout(()=>nextLine(true), lineDuration(current)); setPromptButton(true)}
 function togglePrompter(){if(autoPrompter){pausePrompter(); return} resumePrompter()}
-function resumePrompter(){stopFullRead(); if(flatIndex>=flatLines.length-1)flatIndex=0; startTimer(); renderSlide(); schedulePrompter()}
+function resumePrompter(){stopFullRead(); if(flatIndex>=flatLines.length-1)flatIndex=0; waitingSlideAdvance=false; startTimer(); renderSlide(); schedulePrompter()}
 function pausePrompter(update=true){if(autoPrompter){clearTimeout(autoPrompter); autoPrompter=null} if(update)setPromptButton(false)}
-function nextLine(auto=false){pausePrompter(false); if(flatIndex<flatLines.length-1){flatIndex++; renderSlide(); if(auto) schedulePrompter(); else setPromptButton(false); return} if(auto){pausePrompter(); finishPractice()}else setPromptButton(false)}
-function prevLine(){pausePrompter(); stopFullRead(); flatIndex=Math.max(0,flatIndex-1); renderSlide()}
-function resetPrompter(){pausePrompter(); stopFullRead(); flatIndex=0; resetTimer(); renderSlide(); setPromptButton(false)}
-function startFullRead(){pausePrompter(); readToken++; readingAll=true; startTimer(); speakLineSequence(readToken)}
-function speakLineSequence(token){if(!readingAll||token!==readToken)return; if(flatIndex>=flatLines.length){finishPractice(); return} renderSlide(); const line=flatLines[flatIndex]?.text||''; speak(line,()=>{if(!readingAll||token!==readToken)return; if(flatIndex<flatLines.length-1){flatIndex++; speakLineSequence(token)}else{readingAll=false; finishPractice()}})}
-function stopFullRead(){readingAll=false; readToken++; stopSpeech()}
+function nextLine(auto=false){pausePrompter(false); if(auto && isLastLineOfSlide(flatIndex)){waitingSlideAdvance=true; pausePrompter(); renderSlide(); el('lineStatus').innerText='슬라이드 마지막 줄입니다. 다음 버튼을 누르세요.'; return} if(flatIndex<flatLines.length-1){flatIndex++; waitingSlideAdvance=false; renderSlide(); if(auto) schedulePrompter(); else setPromptButton(false); return} if(auto){pausePrompter(); finishPractice()}else setPromptButton(false)}
+function prevLine(){pausePrompter(); stopFullRead(); waitingSlideAdvance=false; flatIndex=Math.max(0,flatIndex-1); renderSlide()}
+function resetPrompter(){pausePrompter(); stopFullRead(); waitingSlideAdvance=false; flatIndex=0; resetTimer(); renderSlide(); setPromptButton(false); setReadButton(false)}
+function toggleFullRead(){if(readingAll){stopFullRead(); return} startFullRead()}
+function startFullRead(){pausePrompter(); readToken++; readingAll=true; setReadButton(true); waitingSlideAdvance=false; startTimer(); speakLineSequence(readToken)}
+function speakLineSequence(token){if(!readingAll||token!==readToken)return; if(flatIndex>=flatLines.length){finishPractice(); return} renderSlide(); const line=flatLines[flatIndex]?.text||''; speak(line,()=>{if(!readingAll||token!==readToken)return; if(flatIndex<flatLines.length-1){flatIndex++; speakLineSequence(token)}else{readingAll=false; setReadButton(false); finishPractice()}})}
+function stopFullRead(){readingAll=false; readToken++; stopSpeech(); setReadButton(false)}
+function resetFullRead(){stopFullRead(); waitingSlideAdvance=false; flatIndex=0; renderSlide()}
 function formatTime(v){const m=String(Math.floor(v/60)).padStart(2,'0'), s=String(v%60).padStart(2,'0'); return `${m}:${s}`}
 function updateTime(){el('time').innerText=formatTime(seconds); el('time').style.color=seconds>=600?'#e75b4c':'#d9534f'}
 function startTimer(){if(timer)return; timer=setInterval(()=>{seconds++; updateTime()},1000)}
@@ -112,7 +118,7 @@ function pauseTimer(){if(timer){clearInterval(timer); timer=null}}
 function resetTimer(){pauseTimer(); seconds=0; updateTime()}
 function saveCurrentPracticeRecord(){pauseTimer(); if(seconds<=0){resetTimer(); return} const rec=`${new Date().toLocaleTimeString()} / 발표 ${formatTime(seconds)}`; const arr=JSON.parse(localStorage.getItem('records')||'[]'); arr.unshift(rec); localStorage.setItem('records',JSON.stringify(arr.slice(0,8))); seconds=0; updateTime(); loadHistory()}
 function saveTimer(){pauseTimer(); if(seconds<30){alert('30초 미만 연습은 기록하지 않습니다.'); return} saveCurrentPracticeRecord()}
-function finishPractice(){pauseTimer(); pausePrompter(); readingAll=false; if(seconds<30){alert('발표가 끝났습니다. 30초 미만이라 기록하지 않습니다.'); resetTimer(); return} if(confirm('발표가 끝났습니다. 기록을 저장할까요?')) saveCurrentPracticeRecord(); else resetTimer()}
+function finishPractice(){pauseTimer(); pausePrompter(); readingAll=false; setReadButton(false); if(seconds<30){alert('발표가 끝났습니다. 30초 미만이라 기록하지 않습니다.'); resetTimer(); return} if(confirm('발표가 끝났습니다. 기록을 저장할까요?')) saveCurrentPracticeRecord(); else resetTimer()}
 function handlePracticeExit(){const inPractice=el('practiceScreen')?.classList.contains('active'); if(!inPractice)return; const activePractice=timer||autoPrompter||readingAll||seconds>0; if(!activePractice)return; pauseTimer(); pausePrompter(); stopFullRead(); if(seconds>0){if(confirm('발표 연습을 종료하고 기록을 저장할까요?')) saveCurrentPracticeRecord(); else resetTimer()}else{resetTimer()}}
 function loadHistory(){const arr=JSON.parse(localStorage.getItem('records')||'[]'); el('history').innerHTML=arr.map(r=>`<li>${esc(r)}</li>`).join('')}
 function stopSpeech(){try{speechSynthesis.cancel()}catch(e){}}
