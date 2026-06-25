@@ -1090,7 +1090,16 @@
 
             setPrompterLine(prevEl, prompterLines[prompterLineIndex - 1], '이전 문장 없음');
             setPrompterLine(currentEl, prompterLines[prompterLineIndex], '');
-            setPrompterLine(nextEl, prompterLines[prompterLineIndex + 1], '다음 문장 없음');
+            // When there is no next line in the current slide, provide a button to move to the next slide instead of showing "다음 문장 없음".
+            if (prompterLines[prompterLineIndex + 1]) {
+                setPrompterLine(nextEl, prompterLines[prompterLineIndex + 1], '다음 문장 없음');
+            } else {
+                // Clear the empty class and insert a clickable element to move to the next slide
+                if (nextEl) {
+                    nextEl.classList.remove('prompter-empty');
+                    nextEl.innerHTML = '<span style="cursor:pointer; color:#d9534f; font-weight:bold;" onclick="changeSlide(1)">슬라이드 넘김 ▶</span>';
+                }
+            }
             if (statusEl) statusEl.innerText = `문장 ${prompterLineIndex + 1} / ${total}`;
         }
 
@@ -1338,6 +1347,12 @@
                 } else if (mode === 'pressure') {
                     pressureTab.classList.remove('hidden');
                 }
+            }
+            // On entering Q&A or pressure mode, reset Q&A state to show the waiting guidance message.
+            if (mode === 'qa') {
+                initQnA('normal');
+            } else if (mode === 'pressure') {
+                initQnA('pressure');
             }
         }
 
