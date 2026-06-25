@@ -40,15 +40,15 @@
             <button id="readToggle" class="btn blue iconbtn" title="전체읽기" onclick="toggleFullRead()">🔊</button>
             <button class="btn gray iconbtn" title="전체읽기 처음으로" onclick="resetFullRead()">🔙</button>
           </div>
-          <img id="slideImg" class="slide-img" src="슬라이드0001.jpg" alt="슬라이드" />
-          <div class="prompter">
-              </div>
-        <div class="prompter-panel">
-          <div id="slideTitle" class="slide-title">대본 로딩 중</div>
-           </div>
           <div class="control-row">
             <button class="btn green" onclick="prevLine()">◀ 이전</button>
             <button class="btn green" onclick="nextLine(false)">다음 ▶</button>
+          </div>
+          <img id="slideImg" class="slide-img" src="슬라이드0001.jpg" alt="슬라이드" />
+        </div>
+        <div class="prompter-panel">
+          <div id="slideTitle" class="slide-title">대본 로딩 중</div>
+          <div class="prompter">
             <div id="line1" class="line scroll-line active">script.json을 불러오는 중입니다.</div>
             <div id="line2" class="line scroll-line">다음 줄</div>
             <div id="line3" class="line scroll-line">다음 줄</div>
